@@ -2,7 +2,7 @@
 maintainer="Developer <developer@postmarketos.org>"
 pkgname=device-samsung-gta4lwifi
 pkgver=1
-pkgrel=0
+pkgrel=1
 pkgdesc="Samsung Galaxy Tab A7 10.4 (2020) Wi-Fi"
 url="https://postmarketos.org"
 arch="aarch64"
@@ -28,6 +28,6 @@ package() {
 	devicepkg_package $startdir $pkgname
 }
 sha512sums="
-3047d48d89a388f571f1ca55d39937374426bb976f3ed14b5ae35b7476227317712551e39af19c5387011a0cb5720b8dcf5aa55fabb3dbfdc0e8a715c472114e  deviceinfo
+69712b657a56bf5988b3e563fb7fc6cbd6cd15a1446f90ea64b212495dbe1cbd5b5b28f5a14642e0372e74f7303fa6b27dee4d32fc86c7bb42cbf08fd94621bb  deviceinfo
 836a0c0658638b567ce1afb95a895de2e8fb85228b001b62d08422571b8b7662fbc1106f7017bfbb2fcfd705945f2384526deeb61463a31e4ca7afe76c4481c9  modules-initfs
 "
