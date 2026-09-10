@@ -1,0 +1,562 @@
+From: gta4lwifi maintainers
+Subject: [PATCH] input: himax: repair PM, probe, transport and teardown contracts
+
+Follow-up to the Samsung SPI import. This repairs source-level defects;
+it does not assert working hardware or implement native panel integration.
+
+diff --git a/drivers/input/touchscreen/Kconfig b/drivers/input/touchscreen/Kconfig
+--- a/drivers/input/touchscreen/Kconfig
++++ b/drivers/input/touchscreen/Kconfig
+@@ -1417,5 +1417,5 @@
+ config TOUCHSCREEN_HIMAX_CHIPSET
+ 	bool "Himax touchpanel CHIPSET"
+-	depends on I2C
++	depends on SPI_MASTER
+ 	help
+ 	  Say Y here if you have a Himax CHIPSET touchscreen.
+diff --git a/drivers/input/touchscreen/hxchipset/Kconfig b/drivers/input/touchscreen/hxchipset/Kconfig
+--- a/drivers/input/touchscreen/hxchipset/Kconfig
++++ b/drivers/input/touchscreen/hxchipset/Kconfig
+@@ -5,7 +5,7 @@
+ config TOUCHSCREEN_HIMAX_COMMON
+-        tristate "HIMAX chipset i2c touchscreen"
++        tristate "HIMAX chipset SPI touchscreen"
+ 		depends on TOUCHSCREEN_HIMAX_CHIPSET
+ 		help
+-		This enables support for HIMAX CHIPSET over I2C based touchscreens.
++		This enables support for HIMAX CHIPSET over SPI based touchscreens.
+ 
+ choice
+diff --git a/drivers/input/touchscreen/hxchipset/himax_common.c b/drivers/input/touchscreen/hxchipset/himax_common.c
+--- a/drivers/input/touchscreen/hxchipset/himax_common.c
++++ b/drivers/input/touchscreen/hxchipset/himax_common.c
+@@ -744,3 +744,23 @@
+ EXPORT_SYMBOL(himax_parse_assign_cmd);
+ 
++static void himax_release_input(struct himax_ts_data *ts)
++{
++	if (ts->hx_pen_dev) {
++		if (ts->pen_registered)
++			input_unregister_device(ts->hx_pen_dev);
++		else
++			input_free_device(ts->hx_pen_dev);
++		ts->hx_pen_dev = NULL;
++		ts->pen_registered = false;
++	}
++	if (ts->input_dev) {
++		if (ts->input_registered)
++			input_unregister_device(ts->input_dev);
++		else
++			input_free_device(ts->input_dev);
++		ts->input_dev = NULL;
++		ts->input_registered = false;
++	}
++}
++
+ int himax_input_register(struct himax_ts_data *ts)
+@@ -790,3 +810,4 @@
+ 	if (himax_input_register_device(ts->input_dev) == 0) {
++		ts->input_registered = true;
+ 		ret = NO_ERR;
+ 	} else {
+@@ -838,3 +859,4 @@
+ 	if (himax_input_register_device(ts->hx_pen_dev) == 0) {
++		ts->pen_registered = true;
+ 		ret = NO_ERR;
+ 	} else {
+@@ -2800,10 +2822,13 @@
+-	if (himax_parse_dt(ts, pdata) < 0) {
+-		I(" pdata is NULL for DT\n");
++	err = himax_parse_dt(ts, pdata);
++	if (err)
+ 		goto err_alloc_dt_pdata_failed;
+-	}
+ 
+ #if defined(HX_RST_PIN_FUNC)
+ 	ts->rst_gpio = pdata->gpio_reset;
+ #endif
+-	himax_gpio_power_config(pdata);
++	err = himax_gpio_power_config(pdata);
++	if (err)
++		goto err_alloc_dt_pdata_failed;
++	/* Later vendor detection branches must not return a stale success. */
++	err = -ENODEV;
+ #if !defined(CONFIG_OF)
+@@ -2870,6 +2895,4 @@
+ 	INIT_DELAYED_WORK(&ts->work_boot_upgrade, himax_boot_upgrade);
+-	queue_delayed_work(ts->himax_boot_upgrade_wq, &ts->work_boot_upgrade,
+-			msecs_to_jiffies(2000));
+ #endif
+ 
+ #if defined(HX_CONTAINER_SPEED_UP)
+@@ -2880,4 +2903,5 @@
+ 	if (!ts->ts_int_workqueue) {
+ 		E("%s: create ts_resume workqueue failed\n", __func__);
++		err = -ENOMEM;
+ 		goto err_create_ts_resume_wq_failed;
+ 	}
+@@ -2930,6 +2954,6 @@
+ 	if (ret) {
+-		E("%s: Unable to register %s input device\n",
+-			__func__, ts->input_dev->name);
++		E("%s: Unable to register input device: %d\n", __func__, ret);
++		err = ret;
+ 		goto err_input_register_device_failed;
+ 	}
+ 
+@@ -2980,8 +3004,13 @@
+-	if (himax_common_proc_init()) {
++	err = himax_common_proc_init();
++	if (err) {
+ 		E(" %s: himax_common proc_init failed!\n", __func__);
+ 		goto err_creat_proc_file_failed;
+ 	}
+ 
+-	himax_ts_register_interrupt();
++	err = himax_ts_register_interrupt();
++	if (err) {
++		himax_common_proc_deinit();
++		goto err_creat_proc_file_failed;
++	}
+ 
+ #if defined(CONFIG_TOUCHSCREEN_HIMAX_DEBUG)
+@@ -2995,8 +3024,14 @@
+ #if defined(HX_BOOT_UPGRADE) || defined(HX_ZERO_FLASH)
+-	if (g_boot_upgrade_flag)
+-		himax_int_enable(0);
++	if (!g_boot_upgrade_flag)
++		himax_int_enable(1);
++#else
++	himax_int_enable(1);
+ #endif
+ 	g_hx_chip_inited = true;
++#if defined(HX_BOOT_UPGRADE) || defined(HX_ZERO_FLASH)
++	queue_delayed_work(ts->himax_boot_upgrade_wq, &ts->work_boot_upgrade,
++			msecs_to_jiffies(2000));
++#endif
+ 	return 0;
+ 
+ err_creat_proc_file_failed:
+@@ -3015,3 +3050,3 @@
+ err_input_register_device_failed:
+-	input_free_device(ts->input_dev);
++	himax_release_input(ts);
+ /*err_detect_failed:*/
+@@ -3071,6 +3106,15 @@
+ {
+ 	struct himax_ts_data *ts = private_ts;
+ 
++	WRITE_ONCE(ts->stopping, true);
++	himax_common_proc_deinit();
++#if defined(HX_CONTAINER_SPEED_UP)
++	cancel_delayed_work_sync(&ts->ts_int_work);
++#endif
++#if defined(HX_BOOT_UPGRADE) || defined(HX_ZERO_FLASH)
++	cancel_delayed_work_sync(&ts->work_boot_upgrade);
++#endif
+ 	himax_ts_unregister_interrupt();
++	ts->initialized = false;
+ 
+ #if defined(CONFIG_TOUCHSCREEN_HIMAX_INSPECT)
+@@ -3087,4 +3131,3 @@
+-	himax_common_proc_deinit();
+ 	himax_report_data_deinit();
+ 
+ #if defined(HX_SMART_WAKEUP)
+@@ -3114,3 +3157,3 @@
+ #endif
+-	input_free_device(ts->input_dev);
++	himax_release_input(ts);
+ #if defined(HX_CONTAINER_SPEED_UP)
+@@ -3148,5 +3191,4 @@
+ 	kfree(ts->pdata);
+ 	ts->pdata = NULL;
+-	kfree(ts);
+-	ts = NULL;
++	g_hx_chip_inited = false;
+ 	probe_fail_flag = 0;
+@@ -3280,4 +3322,6 @@
+ 		if (result) {
+ 			E("Something wrong! Skip Update zero flash!\n");
+-			goto ESCAPE_0F_UPDATE;
++			ts->suspended = true;
++			atomic_set(&ts->suspend_mode, 1);
++			return result < 0 ? result : -EIO;
+ 		}
+@@ -3330,5 +3374,2 @@
+ 	himax_int_enable(1);
+-#if defined(HX_ZERO_FLASH) && defined(HX_RESUME_SET_FW)
+-ESCAPE_0F_UPDATE:
+-#endif
+ END:
+diff --git a/drivers/input/touchscreen/hxchipset/himax_common.h b/drivers/input/touchscreen/hxchipset/himax_common.h
+--- a/drivers/input/touchscreen/hxchipset/himax_common.h
++++ b/drivers/input/touchscreen/hxchipset/himax_common.h
+@@ -407,4 +407,7 @@
+ struct himax_ts_data {
+ 	bool initialized;
++	bool input_registered;
++	bool pen_registered;
++	bool stopping;
+ 	bool suspended;
+ 	atomic_t suspend_mode;
+diff --git a/drivers/input/touchscreen/hxchipset/himax_platform.c b/drivers/input/touchscreen/hxchipset/himax_platform.c
+--- a/drivers/input/touchscreen/hxchipset/himax_platform.c
++++ b/drivers/input/touchscreen/hxchipset/himax_platform.c
+@@ -231,21 +231,22 @@
+ 	pdata->gpio_irq = devm_fwnode_gpiod_get_index(ts->dev,
+ 			of_fwnode_handle(dt), "himax,irq", 0, GPIOD_ASIS, "himax_irq");
+-	if (IS_ERR(pdata->gpio_irq)) {
+-		I(" DT:gpio_irq value is not valid\n");
+-		pdata->gpio_irq = NULL;
+-	}
++	if (IS_ERR(pdata->gpio_irq))
++		return dev_err_probe(ts->dev, PTR_ERR(pdata->gpio_irq),
++				     "failed to acquire touch IRQ GPIO\n");
+ 
+ 	pdata->gpio_reset = devm_fwnode_gpiod_get_index(ts->dev,
+ 			of_fwnode_handle(dt), "himax,rst", 0, GPIOD_ASIS, "himax_reset");
+-	if (IS_ERR(pdata->gpio_reset)) {
+-		I(" DT:gpio_rst value is not valid\n");
+-		pdata->gpio_reset = NULL;
+-	}
++	if (IS_ERR(pdata->gpio_reset))
++		return dev_err_probe(ts->dev, PTR_ERR(pdata->gpio_reset),
++				     "failed to acquire touch reset GPIO\n");
+ 
+ 	pdata->gpio_3v3_en = devm_fwnode_gpiod_get_index(ts->dev,
+ 			of_fwnode_handle(dt), "himax,3v3", 0, GPIOD_ASIS, "himax_3v3_en");
+ 	if (IS_ERR(pdata->gpio_3v3_en)) {
+-		I(" DT:gpio_3v3_en value is not valid\n");
++		/* Only an absent optional supply GPIO is acceptable. */
++		if (PTR_ERR(pdata->gpio_3v3_en) != -ENOENT)
++			return dev_err_probe(ts->dev, PTR_ERR(pdata->gpio_3v3_en),
++					     "failed to acquire touch supply GPIO\n");
+ 		pdata->gpio_3v3_en = NULL;
+ 	}
+ 
+@@ -285,37 +286,53 @@
+ static int himax_spi_read(uint8_t *command, uint8_t command_len,
+ 		uint8_t *data, uint32_t length, uint8_t toRetry)
+ {
++	struct spi_device *sdev = private_ts->spi;
+ 	struct spi_message message;
+-	struct spi_transfer xfer[2];
+-	int retry;
+-	int error;
++	struct spi_transfer xfer[2] = { };
++	u8 *tx, *rx;
++	size_t max_message = spi_max_message_size(sdev);
++	int retry, error = -EIO;
++
++	if (!command || !data || !command_len || !length || !toRetry)
++		return -EINVAL;
++	if (length > HX_MAX_WRITE_SZ ||
++	    command_len > spi_max_transfer_size(sdev) ||
++	    length > spi_max_transfer_size(sdev) ||
++	    command_len > max_message || length > max_message - command_len)
++		return -EMSGSIZE;
++
++	/* Callers include stack-backed register buffers: DMA sees only these. */
++	tx = kmemdup(command, command_len, GFP_KERNEL);
++	if (!tx)
++		return -ENOMEM;
++	rx = kmalloc(length, GFP_KERNEL);
++	if (!rx) {
++		kfree(tx);
++		return -ENOMEM;
++	}
+ 
+ 	spi_message_init(&message);
+-	memset(xfer, 0, sizeof(xfer));
+-
+-	xfer[0].tx_buf = command;
++	xfer[0].tx_buf = tx;
+ 	xfer[0].len = command_len;
+ 	spi_message_add_tail(&xfer[0], &message);
+-
+-	xfer[1].rx_buf = data;
++	xfer[1].rx_buf = rx;
+ 	xfer[1].len = length;
+ 	spi_message_add_tail(&xfer[1], &message);
+ 
++	/* One message keeps CS asserted between the command and response. */
+ 	for (retry = 0; retry < toRetry; retry++) {
+-		error = spi_sync(private_ts->spi, &message);
+-		if (unlikely(error))
+-			E("SPI read error: %d\n", error);
+-		else
++		error = spi_sync(sdev, &message);
++		if (!error && message.actual_length != command_len + length)
++			error = -EIO;
++		if (!error) {
++			memcpy(data, rx, length);
+ 			break;
++		}
+ 	}
+ 
+-	if (retry == toRetry) {
+-		E("%s: SPI read error retry over %d\n",
+-			__func__, toRetry);
+-		return -EIO;
+-	}
+-
+-	return 0;
++	kfree(rx);
++	kfree(tx);
++	return error;
+ }
+ 
+ static int himax_spi_write(uint8_t *buf, uint32_t length)
+@@ -366,6 +383,13 @@
+ 	int i = 0;
+ 	int result = 0;
+ 
++	if (!spi_format_buf || (length && !data) || !toRetry)
++		return -EINVAL;
++	if (length > HX_MAX_WRITE_SZ - 2 ||
++	    length + 2 > spi_max_transfer_size(private_ts->spi) ||
++	    length + 2 > spi_max_message_size(private_ts->spi))
++		return -EMSGSIZE;
++
+ 	mutex_lock(&(private_ts->rw_lock));
+ 	spi_format_buf[0] = 0xF2;
+ 	spi_format_buf[1] = command;
+@@ -399,3 +423,7 @@
+ 	int irqnum = ts->hx_irq;
+ 
++	if (enable && READ_ONCE(ts->stopping))
++		return;
++	if (irqnum <= 0 || !ts->use_irq)
++		return;
+ 	spin_lock_irqsave(&ts->irq_lock, irqflags);
+@@ -578,34 +606,38 @@
+ int himax_gpio_power_config(struct himax_i2c_platform_data *pdata)
+ {
+-	int error = 0;
++	int error, irq;
++
++	private_ts->hx_irq = 0;
++	if (!pdata->gpio_irq || !pdata->gpio_reset)
++		return -ENODEV;
+ 
+ #if defined(HX_RST_PIN_FUNC)
+-	if (pdata->gpio_reset)
+-		gpiod_direction_output(pdata->gpio_reset, 0);
++	error = gpiod_direction_output(pdata->gpio_reset, 0);
++	if (error)
++		return error;
+ #endif
+ 
+ 	if (pdata->gpio_3v3_en) {
+-		gpiod_direction_output(pdata->gpio_3v3_en, 1);
+-		I("3v3_en set 1 get pin = %d\n",
+-			gpiod_get_value(pdata->gpio_3v3_en));
++		error = gpiod_direction_output(pdata->gpio_3v3_en, 1);
++		if (error)
++			return error;
+ 	}
+ 
+-	if (pdata->gpio_irq) {
+-		gpiod_direction_input(pdata->gpio_irq);
+-		private_ts->hx_irq = gpiod_to_irq(pdata->gpio_irq);
+-	} else {
+-		E("irq gpio not provided\n");
+-		return -ENODEV;
+-	}
++	error = gpiod_direction_input(pdata->gpio_irq);
++	if (error)
++		return error;
++	irq = gpiod_to_irq(pdata->gpio_irq);
++	if (irq <= 0)
++		return irq ? irq : -EINVAL;
+ 
+ 	usleep_range(2000, 2001);
+-
+ #if defined(HX_RST_PIN_FUNC)
+-	if (pdata->gpio_reset)
+-		gpiod_direction_output(pdata->gpio_reset, 1);
++	error = gpiod_direction_output(pdata->gpio_reset, 1);
++	if (error)
++		return error;
+ #endif
+-
+-	return error;
++	private_ts->hx_irq = irq;
++	return 0;
+ }
+ 
+ #endif
+@@ -654,3 +686,3 @@
+-			IRQF_TRIGGER_FALLING | IRQF_ONESHOT,
++			IRQF_TRIGGER_FALLING | IRQF_ONESHOT | IRQF_NO_AUTOEN,
+ 			HIMAX_common_NAME, ts);
+ 	} else {
+@@ -659,4 +691,5 @@
+-			IRQF_TRIGGER_LOW | IRQF_ONESHOT, HIMAX_common_NAME, ts);
++			IRQF_TRIGGER_LOW | IRQF_ONESHOT | IRQF_NO_AUTOEN,
++			HIMAX_common_NAME, ts);
+ 	}
+ 
+ 	return ret;
+@@ -674,44 +707,23 @@
+ int himax_ts_register_interrupt(void)
+ {
+ 	struct himax_ts_data *ts = private_ts;
+-	/* struct i2c_client *client = private_ts->client; */
+-	int ret = 0;
++	int ret;
+ 
++	ts->use_irq = 0;
+ 	ts->irq_enabled = 0;
++	atomic_set(&ts->irq_state, 0);
++	if (ts->hx_irq <= 0)
++		return -EINVAL;
+ 
+-	/* Work functon */
+-	if (private_ts->hx_irq) {/*INT mode*/
+-		ts->use_irq = 1;
+-		ret = himax_int_register_trigger();
+-
+-		if (ret == 0) {
+-			ts->irq_enabled = 1;
+-			atomic_set(&ts->irq_state, 1);
+-			I("%s: irq enabled at gpio: %d\n", __func__,
+-				private_ts->hx_irq);
++	ret = himax_int_register_trigger();
++	if (ret)
++		return ret;
++	ts->use_irq = 1;
++	/* IRQF_NO_AUTOEN keeps input quiet until firmware is ready. */
+ #if defined(HX_SMART_WAKEUP)
+-			irq_set_irq_wake(private_ts->hx_irq, 1);
++	irq_set_irq_wake(ts->hx_irq, 1);
+ #endif
+-		} else {
+-			ts->use_irq = 0;
+-			E("%s: request_irq failed\n", __func__);
+-		}
+-	} else {
+-		I("%s: private_ts->hx_irq is empty, use polling mode.\n",
+-			__func__);
+-	}
+-
+-	/*if use polling mode need to disable HX_ESD_RECOVERY function*/
+-	if (!ts->use_irq) {
+-		ts->himax_wq = create_singlethread_workqueue("himax_touch");
+-		INIT_WORK(&ts->work, himax_ts_work_func);
+-		hrtimer_setup(&ts->timer, himax_ts_timer_func, CLOCK_MONOTONIC,
+-				HRTIMER_MODE_REL);
+-		hrtimer_start(&ts->timer, ktime_set(1, 0), HRTIMER_MODE_REL);
+-		I("%s: polling mode enabled\n", __func__);
+-	}
+-
+-	return ret;
++	return 0;
+ }
+ 
+ int himax_ts_unregister_interrupt(void)
+@@ -741,4 +753,3 @@
+ #endif
+-	himax_chip_common_suspend(ts);
+-	return 0;
++	return himax_chip_common_suspend(ts);
+ }
+@@ -766,4 +777,3 @@
+ #endif
+-	himax_chip_common_resume(ts);
+-	return 0;
++	return himax_chip_common_resume(ts);
+ }
+@@ -919,18 +929,21 @@
+ static bool himax_assigned_fw_name(void)
+ {
+-	uint8_t panel_id = 0;
++	u8 panel_id = himax_get_panel_info();
++	int len;
+ 
+-	panel_id = himax_get_panel_info();
++	/* Re-probe must not append to a name left by an earlier attempt. */
++	if (panel_id == NO_PANEL || panel_id >= ARRAY_SIZE(himax_panel_info)) {
++		strscpy(g_fw_name, "Himax_firmware.bin", sizeof(g_fw_name));
++		return false;
++	}
+ 
+-	if(panel_id != NO_PANEL) {
+-		strncat(g_fw_name, himax_panel_info[panel_id].panel_dsc,
+-				strlen(himax_panel_info[panel_id].panel_dsc));
+-		strncat(g_fw_name, FW_SUFFIX,strlen(FW_SUFFIX));
+-		I("fw name is %s.\n",g_fw_name);
+-		return 1;
+-	}else{
+-		E("fw name dose not assign, pls check panel info.\n");
++	len = snprintf(g_fw_name, sizeof(g_fw_name), "Himax_firmware_%s%s",
++		       himax_panel_info[panel_id].panel_dsc, FW_SUFFIX);
++	if (len < 0 || len >= sizeof(g_fw_name)) {
++		strscpy(g_fw_name, "Himax_firmware.bin", sizeof(g_fw_name));
++		return false;
+ 	}
+-	return 0;
++
++	return true;
+ }
+ #endif
+@@ -1005,3 +1018,5 @@
+ err_common_init_failed:
++	spi_set_drvdata(spi, NULL);
++	private_ts = NULL;
+ 	kfree(ts);
+ err_alloc_data_failed:
+@@ -1028,10 +1043,11 @@
+ 	if (g_hx_chip_inited)
+ 		himax_chip_common_deinit();
+ 
+-	ts->spi = NULL;
+-	/* spin_unlock_irq(&ts->spi_lock); */
+ 	spi_set_drvdata(spi, NULL);
++	private_ts = NULL;
++	kfree(ts);
+ 	kfree(gBuffer);
++	gBuffer = NULL;
+ 
+ 	I("%s: completed.\n", __func__);
+ }
+@@ -1060,6 +1076,7 @@
+ 		.name =		HIMAX_common_NAME,
+ 		.owner =	THIS_MODULE,
+ 		.of_match_table = himax_match_table,
++		.pm = &himax_common_pm_ops,
+ 	},
+ 	.probe =	himax_chip_common_probe,
+ 	.remove =	himax_chip_common_remove,
+@@ -1080,14 +1097,8 @@
+-	spi_register_driver(&himax_common_driver);
+-
+-	return 0;
++	return spi_register_driver(&himax_common_driver);
+ }
+ 
+ static void __exit himax_common_exit(void)
+ {
+-	if (spi) {
+-		spi_unregister_device(spi);
+-		spi = NULL;
+-	}
+ 	spi_unregister_driver(&himax_common_driver);
+ }
+ 
+diff --git a/drivers/input/touchscreen/hxchipset/himax_platform.h b/drivers/input/touchscreen/hxchipset/himax_platform.h
+--- a/drivers/input/touchscreen/hxchipset/himax_platform.h
++++ b/drivers/input/touchscreen/hxchipset/himax_platform.h
+@@ -46,7 +46,7 @@
+ #else
+-#define D(x...)
+-#define I(x...)
+-#define W(x...)
+-#define E(x...)
++#define D(x...) pr_debug("[HXTP] " x)
++#define I(x...) pr_debug("[HXTP] " x)
++#define W(x...) pr_warn_ratelimited("[HXTP] " x)
++#define E(x...) pr_err_ratelimited("[HXTP] " x)
+ #define DIF(x...)
+ #endif
