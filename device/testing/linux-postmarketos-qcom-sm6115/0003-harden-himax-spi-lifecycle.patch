@@ -98,7 +98,7 @@ diff --git a/drivers/input/touchscreen/hxchipset/himax_common.c b/drivers/input/
 @@ -2930,6 +2954,6 @@
  	if (ret) {
 -		E("%s: Unable to register %s input device\n",
--				__func__, ts->input_dev->name);
+-			__func__, ts->input_dev->name);
 +		E("%s: Unable to register input device: %d\n", __func__, ret);
 +		err = ret;
  		goto err_input_register_device_failed;
@@ -120,7 +120,7 @@ diff --git a/drivers/input/touchscreen/hxchipset/himax_common.c b/drivers/input/
 +	}
  
  #if defined(CONFIG_TOUCHSCREEN_HIMAX_DEBUG)
-@@ -2995,5 +3024,7 @@
+@@ -2995,8 +3024,14 @@
  #if defined(HX_BOOT_UPGRADE) || defined(HX_ZERO_FLASH)
 -	if (g_boot_upgrade_flag)
 -		himax_int_enable(0);
@@ -129,8 +129,6 @@ diff --git a/drivers/input/touchscreen/hxchipset/himax_common.c b/drivers/input/
 +#else
 +	himax_int_enable(1);
  #endif
- 	g_hx_chip_inited = true;
-@@ -3000,4 +3031,8 @@
  	g_hx_chip_inited = true;
 +#if defined(HX_BOOT_UPGRADE) || defined(HX_ZERO_FLASH)
 +	queue_delayed_work(ts->himax_boot_upgrade_wq, &ts->work_boot_upgrade,
@@ -531,15 +529,13 @@ diff --git a/drivers/input/touchscreen/hxchipset/himax_platform.c b/drivers/inpu
  	},
  	.probe =	himax_chip_common_probe,
  	.remove =	himax_chip_common_remove,
-@@ -1080,6 +1097,4 @@
+@@ -1080,14 +1097,8 @@
 -	spi_register_driver(&himax_common_driver);
 -
 -	return 0;
 +	return spi_register_driver(&himax_common_driver);
  }
  
- static void __exit himax_common_exit(void)
-@@ -1089,8 +1104,4 @@
  static void __exit himax_common_exit(void)
  {
 -	if (spi) {
@@ -548,6 +544,7 @@ diff --git a/drivers/input/touchscreen/hxchipset/himax_platform.c b/drivers/inpu
 -	}
  	spi_unregister_driver(&himax_common_driver);
  }
+ 
 diff --git a/drivers/input/touchscreen/hxchipset/himax_platform.h b/drivers/input/touchscreen/hxchipset/himax_platform.h
 --- a/drivers/input/touchscreen/hxchipset/himax_platform.h
 +++ b/drivers/input/touchscreen/hxchipset/himax_platform.h
