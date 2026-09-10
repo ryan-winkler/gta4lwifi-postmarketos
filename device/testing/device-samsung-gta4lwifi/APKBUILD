@@ -1,0 +1,33 @@
+# Reference: <https://postmarketos.org/devicepkg>
+maintainer="Developer <developer@postmarketos.org>"
+pkgname=device-samsung-gta4lwifi
+pkgver=1
+pkgrel=0
+pkgdesc="Samsung Galaxy Tab A7 10.4 (2020) Wi-Fi"
+url="https://postmarketos.org"
+arch="aarch64"
+license="MIT"
+depends="
+	android-tools-mkbootimg
+	linux-postmarketos-qcom-sm6115
+	postmarketos-base
+	mesa-dri-gallium
+"
+makedepends="devicepkg-dev"
+source="
+	deviceinfo
+	modules-initfs
+"
+options="!archcheck !check"
+
+build() {
+	devicepkg_build $startdir $pkgname
+}
+
+package() {
+	devicepkg_package $startdir $pkgname
+}
+sha512sums="
+3047d48d89a388f571f1ca55d39937374426bb976f3ed14b5ae35b7476227317712551e39af19c5387011a0cb5720b8dcf5aa55fabb3dbfdc0e8a715c472114e  deviceinfo
+836a0c0658638b567ce1afb95a895de2e8fb85228b001b62d08422571b8b7662fbc1106f7017bfbb2fcfd705945f2384526deeb61463a31e4ca7afe76c4481c9  modules-initfs
+"

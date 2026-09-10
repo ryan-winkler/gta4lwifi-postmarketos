@@ -1,0 +1,67 @@
+maintainer="Developer <developer@postmarketos.org>"
+_flavor="postmarketos-qcom-sm6115"
+pkgname=linux-$_flavor
+pkgver=7.2.3
+pkgrel=1
+pkgdesc="Near-mainline kernel for SM6115 devices"
+arch="aarch64"
+_carch="arm64"
+url="https://codeberg.org/sm61x5-mainline/linux"
+license="GPL-2.0-only"
+options="!strip !check !tracedeps pmb:cross-native !pmb:kconfigcheck-nftables"
+makedepends="
+	bash
+	bc
+	bison
+	devicepkg-dev
+	flex
+	linux-headers
+	openssl-dev
+	perl
+	python3
+	zstd
+"
+
+source="
+	linux-sm6115-$pkgver.tar.gz::https://codeberg.org/sm61x5-mainline/linux/archive/sm61x5/$pkgver.tar.gz
+	config-$_flavor.$arch
+	0001-add-samsung-gta4lwifi-support.patch
+	0002-fix-touch-node-and-port-himax-hx83102-spi-driver.patch
+"
+builddir="$srcdir/linux"
+
+prepare() {
+	default_prepare
+	cp "$srcdir/config-$_flavor.$arch" .config
+	make ARCH="$_carch" olddefconfig
+}
+
+build() {
+	unset LDFLAGS
+	make ARCH="$_carch" CC="${CC:-gcc}" \
+		KBUILD_BUILD_VERSION="$((pkgrel + 1 ))-$_flavor"
+}
+
+package() {
+	mkdir -p "$pkgdir"/boot
+
+	install -Dm644 "$builddir/arch/$_carch/boot/vmlinuz" \
+		"$pkgdir/boot/vmlinuz"
+
+	make modules_install dtbs_install \
+		ARCH="$_carch" \
+		INSTALL_PATH="$pkgdir"/boot/ \
+		INSTALL_MOD_PATH="$pkgdir"/usr \
+		INSTALL_MOD_STRIP=1 \
+		INSTALL_DTBS_PATH="$pkgdir"/boot/dtbs
+	rm -f "$pkgdir"/usr/lib/modules/*/build "$pkgdir"/usr/lib/modules/*/source
+
+	install -D "$builddir"/include/config/kernel.release \
+		"$pkgdir"/usr/share/kernel/$_flavor/kernel.release
+}
+sha512sums="
+2a6393212c413cf3812c2293d074fc9b7f82dec01c740251fe390b0633484b247e95e886493cbec77e6ef9741aebe0a4134c2218672424b332ae119c22566f23  linux-sm6115-7.2.3.tar.gz
+a89a6d70fb4898143cfcae5b134bff5caa410f711e739ffb4aecc9da62637064ae3ea467282c0152df09b59912d24b1817aa7a51cf6f8049747c6af233f01b63  config-postmarketos-qcom-sm6115.aarch64
+8600009cd15b3fbe1e917e69849fa9aedc9b58bc6649ea8b99f8d9ee428fc2467184fa1ea50ea42a1527cf1bdf902dbdfd4846e1de86854bf0aa309852bbd99c  0001-add-samsung-gta4lwifi-support.patch
+1f2692cd577f15c0aff9fc6b36fa1cf97b24d618f269bab0ed083ebd95601bfa900b93db04e3e4251f7ac32986d8c31d4891a0f2768ff5da73ee7b996a1b454d  0002-fix-touch-node-and-port-himax-hx83102-spi-driver.patch
+"
