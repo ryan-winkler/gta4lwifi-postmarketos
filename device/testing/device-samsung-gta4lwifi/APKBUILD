@@ -21,11 +21,11 @@ source="
 options="!archcheck !check"
 
 build() {
-	devicepkg_build $startdir $pkgname
+	devicepkg_build "$startdir" "$pkgname"
 }
 
 package() {
-	devicepkg_package $startdir $pkgname
+	devicepkg_package "$startdir" "$pkgname"
 }
 sha512sums="
 6f390f4ff7b9c2cd4d72dcfef829ce47ef53d57e73c014ab216673700d8ccc8923978e63701ceb5926d304ac66d02cca59a6280d78344573d09ed03a325a26cc  deviceinfo
