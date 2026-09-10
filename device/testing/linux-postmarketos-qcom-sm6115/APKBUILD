@@ -2,7 +2,7 @@ maintainer="Developer <developer@postmarketos.org>"
 _flavor="postmarketos-qcom-sm6115"
 pkgname=linux-$_flavor
 pkgver=7.2.3
-pkgrel=1
+pkgrel=2
 pkgdesc="Near-mainline kernel for SM6115 devices"
 arch="aarch64"
 _carch="arm64"
@@ -61,7 +61,7 @@ package() {
 }
 sha512sums="
 2a6393212c413cf3812c2293d074fc9b7f82dec01c740251fe390b0633484b247e95e886493cbec77e6ef9741aebe0a4134c2218672424b332ae119c22566f23  linux-sm6115-7.2.3.tar.gz
-a89a6d70fb4898143cfcae5b134bff5caa410f711e739ffb4aecc9da62637064ae3ea467282c0152df09b59912d24b1817aa7a51cf6f8049747c6af233f01b63  config-postmarketos-qcom-sm6115.aarch64
+68eb7cc703710856096af0ca9b9858ba5e2f7c66f72de7b0a5ee217f25d71340ed181405b2d09185b709f7a673fc5fe79a1688146c1e033945805b41eccc26e1  config-postmarketos-qcom-sm6115.aarch64
 8600009cd15b3fbe1e917e69849fa9aedc9b58bc6649ea8b99f8d9ee428fc2467184fa1ea50ea42a1527cf1bdf902dbdfd4846e1de86854bf0aa309852bbd99c  0001-add-samsung-gta4lwifi-support.patch
-1f2692cd577f15c0aff9fc6b36fa1cf97b24d618f269bab0ed083ebd95601bfa900b93db04e3e4251f7ac32986d8c31d4891a0f2768ff5da73ee7b996a1b454d  0002-fix-touch-node-and-port-himax-hx83102-spi-driver.patch
+1321b2d6eadce17dc38837d28f8f3acb2690ac387b1ec6103647ae94f5cf76e87e978fc905f843b65749b5cfb9c2b409f16f0106de8c18f7b613fcab83922c45  0002-fix-touch-node-and-port-himax-hx83102-spi-driver.patch
 "

@@ -1,5 +1,5 @@
 diff --git a/arch/arm64/boot/dts/qcom/sm6115-samsung-gta4lwifi.dts b/arch/arm64/boot/dts/qcom/sm6115-samsung-gta4lwifi.dts
-index b67cee890..74c31293f 100644
+index b67cee890..a0e074446 100644
 --- a/arch/arm64/boot/dts/qcom/sm6115-samsung-gta4lwifi.dts
 +++ b/arch/arm64/boot/dts/qcom/sm6115-samsung-gta4lwifi.dts
 @@ -72,19 +72,33 @@ key-volume-up {
@@ -42,6 +42,32 @@ index b67cee890..74c31293f 100644
  	};
  };
  
+@@ -113,7 +127,24 @@ &uart4 {
+ 	status = "okay";
+ };
+ 
+-/* USB controller in peripheral/gadget mode for USB networking & debugging */
++/* USB controller in peripheral/gadget mode for USB networking & debugging.
++ * usb_hsphy/usb_qmpphy default to status="disabled" in sm6115.dtsi and
++ * were never enabled here -- USB wouldn't actually come up despite &usb
++ * itself being "okay". Neither PHY node takes board-specific supply
++ * properties in the mainline binding (checked against sm6115.dtsi: only
++ * SoC-internal clocks/resets), so enabling them needs no board-specific
++ * tuning data -- mainline's phy-qcom-qusb2.c/phy-qcom-qmp-usb.c carry the
++ * SM6115 init sequences internally, selected by the compatible string,
++ * unlike Samsung's downstream driver which read them from DT.
++ */
++&usb_hsphy {
++	status = "okay";
++};
++
++&usb_qmpphy {
++	status = "okay";
++};
++
+ &usb {
+ 	status = "okay";
+ };
 diff --git a/arch/arm64/configs/sm61x5_defconfig b/arch/arm64/configs/sm61x5_defconfig
 index af944f8b5..9aaa80e6c 100644
 --- a/arch/arm64/configs/sm61x5_defconfig
@@ -60,7 +86,7 @@ index af944f8b5..9aaa80e6c 100644
  # CONFIG_INPUT_AD714X is not set
  # CONFIG_INPUT_ATMEL_CAPTOUCH is not set
 diff --git a/drivers/input/touchscreen/Kconfig b/drivers/input/touchscreen/Kconfig
-index 9b9ae8ac3..badc07be7 100644
+index 9b9ae8ac3..dd2feb1f7 100644
 --- a/drivers/input/touchscreen/Kconfig
 +++ b/drivers/input/touchscreen/Kconfig
 @@ -1414,4 +1414,15 @@ config TOUCHSCREEN_HIMAX_HX83112B
@@ -69,7 +95,7 @@ index 9b9ae8ac3..badc07be7 100644
  
 +config TOUCHSCREEN_HIMAX_CHIPSET
 +	bool "Himax touchpanel CHIPSET"
-+	depends on I2C
++	depends on SPI
 +	help
 +	  Say Y here if you have a Himax CHIPSET touchscreen.
 +	  HIMAX controllers are multi touch controllers which can
@@ -90,7 +116,7 @@ index bfd9de833..8526d3e40 100644
 +obj-$(CONFIG_TOUCHSCREEN_HIMAX_CHIPSET)	+= hxchipset/
 diff --git a/drivers/input/touchscreen/hxchipset/Kconfig b/drivers/input/touchscreen/hxchipset/Kconfig
 new file mode 100644
-index 000000000..9e5b04742
+index 000000000..f65bd9e69
 --- /dev/null
 +++ b/drivers/input/touchscreen/hxchipset/Kconfig
 @@ -0,0 +1,117 @@
@@ -99,10 +125,10 @@ index 000000000..9e5b04742
 +#
 +
 +config TOUCHSCREEN_HIMAX_COMMON
-+        tristate "HIMAX chipset i2c touchscreen"
++        tristate "HIMAX chipset SPI touchscreen"
 +		depends on TOUCHSCREEN_HIMAX_CHIPSET
 +		help
-+		This enables support for HIMAX CHIPSET over I2C based touchscreens.
++		This enables support for HIMAX CHIPSET over SPI based touchscreens.
 +
 +choice
 +	prompt "HIMAX touch IC types"
@@ -389,10 +415,10 @@ index 000000000..97983f61e
 +endif
 diff --git a/drivers/input/touchscreen/hxchipset/himax_common.c b/drivers/input/touchscreen/hxchipset/himax_common.c
 new file mode 100644
-index 000000000..f794b59d7
+index 000000000..8c3e4df7e
 --- /dev/null
 +++ b/drivers/input/touchscreen/hxchipset/himax_common.c
-@@ -0,0 +1,3345 @@
+@@ -0,0 +1,3360 @@
 +/* SPDX-License-Identifier: GPL-2.0 */
 +/*  Himax Android Driver Sample Code for common functions
 + *
@@ -3234,7 +3260,12 @@ index 000000000..f794b59d7
 +#if defined(HX_RST_PIN_FUNC)
 +	ts->rst_gpio = pdata->gpio_reset;
 +#endif
-+	himax_gpio_power_config(pdata);
++	ret = himax_gpio_power_config(pdata);
++	if (ret) {
++		E("%s: gpio power config failed: %d\n", __func__, ret);
++		err = ret;
++		goto error_ic_detect_failed;
++	}
 +#if !defined(CONFIG_OF)
 +
 +	if (pdata->power) {
@@ -3417,7 +3448,11 @@ index 000000000..f794b59d7
 +		goto err_creat_proc_file_failed;
 +	}
 +
-+	himax_ts_register_interrupt();
++	err = himax_ts_register_interrupt();
++	if (err) {
++		E(" %s: himax_ts_register_interrupt failed: %d\n", __func__, err);
++		goto err_creat_proc_file_failed;
++	}
 +
 +#if defined(CONFIG_TOUCHSCREEN_HIMAX_DEBUG)
 +	if (himax_debug_init())
@@ -3523,7 +3558,13 @@ index 000000000..f794b59d7
 +	cancel_delayed_work_sync(&ts->work_att);
 +	destroy_workqueue(ts->himax_att_wq);
 +#endif
-+	input_free_device(ts->input_dev);
++	/* input_register_device() already succeeded by the time this
++	 * (non-failure-path) deinit runs -- input_free_device() is only
++	 * correct for a device that was allocated but never registered;
++	 * a registered one must go through input_unregister_device(). */
++	input_unregister_device(ts->input_dev);
++	if (ts->hx_pen_dev)
++		input_unregister_device(ts->hx_pen_dev);
 +#if defined(HX_CONTAINER_SPEED_UP)
 +	cancel_delayed_work_sync(&ts->ts_int_work);
 +	destroy_workqueue(ts->ts_int_workqueue);
@@ -3740,10 +3781,10 @@ index 000000000..f794b59d7
 +
 diff --git a/drivers/input/touchscreen/hxchipset/himax_common.h b/drivers/input/touchscreen/hxchipset/himax_common.h
 new file mode 100644
-index 000000000..e41a1a695
+index 000000000..ed03e19fa
 --- /dev/null
 +++ b/drivers/input/touchscreen/hxchipset/himax_common.h
-@@ -0,0 +1,607 @@
+@@ -0,0 +1,610 @@
 +/* SPDX-License-Identifier: GPL-2.0 */
 +/*  Himax Android Driver Sample Code for common functions
 + *
@@ -3819,7 +3860,10 @@ index 000000000..e41a1a695
 +#define HX_RESUME_SEND_CMD	/*Need to enable on TDDI chipset*/
 +/*#define HX_HIGH_SENSE*/
 +/*#define HX_PALM_REPORT*/
-+#define HX_USB_DETECT_GLOBAL
++/* HX_USB_DETECT_GLOBAL intentionally left undefined: it adjusts touch
++ * moisture/sensitivity thresholds based on charger-cable state via
++ * smblib_get_usb_mode(), a Samsung downstream charger-driver symbol not
++ * present in this kernel. Optional tuning, not needed for basic touch. */
 +
 +/* for MTK special platform.If turning on,
 + * it will report to system by using specific format.
@@ -18421,10 +18465,10 @@ index 000000000..df3f84eee
 +#endif
 diff --git a/drivers/input/touchscreen/hxchipset/himax_platform.c b/drivers/input/touchscreen/hxchipset/himax_platform.c
 new file mode 100644
-index 000000000..e46a57a2c
+index 000000000..f3e71673e
 --- /dev/null
 +++ b/drivers/input/touchscreen/hxchipset/himax_platform.c
-@@ -0,0 +1,1100 @@
+@@ -0,0 +1,1161 @@
 +/* SPDX-License-Identifier: GPL-2.0 */
 +/*  Himax Android Driver Sample Code for QCT platform
 + *
@@ -18657,16 +18701,27 @@ index 000000000..e46a57a2c
 +	 * without the "-gpio" suffix and the gpiolib "-gpio"/"-gpios"
 +	 * matching in of_find_gpio() supplies it. GPIOD_ASIS: direction is
 +	 * set explicitly later in himax_gpio_power_config(). */
++	/* gpio_irq is mandatory: any error (including -EPROBE_DEFER, which
++	 * must propagate so the kernel retries probe once the GPIO
++	 * controller is ready) fails parse_dt outright, rather than being
++	 * silently turned into NULL and discovered later as "irq gpio not
++	 * provided" deep in himax_gpio_power_config(). */
 +	pdata->gpio_irq = devm_fwnode_gpiod_get_index(ts->dev,
 +			of_fwnode_handle(dt), "himax,irq", 0, GPIOD_ASIS, "himax_irq");
 +	if (IS_ERR(pdata->gpio_irq)) {
-+		I(" DT:gpio_irq value is not valid\n");
-+		pdata->gpio_irq = NULL;
++		ret = PTR_ERR(pdata->gpio_irq);
++		E(" DT:gpio_irq request failed: %d\n", ret);
++		return ret;
 +	}
 +
++	/* gpio_reset and gpio_3v3_en are optional (absent from this
++	 * board's DT node); still propagate -EPROBE_DEFER for those, since
++	 * that specifically means "not yet available", not "absent". */
 +	pdata->gpio_reset = devm_fwnode_gpiod_get_index(ts->dev,
 +			of_fwnode_handle(dt), "himax,rst", 0, GPIOD_ASIS, "himax_reset");
 +	if (IS_ERR(pdata->gpio_reset)) {
++		if (PTR_ERR(pdata->gpio_reset) == -EPROBE_DEFER)
++			return -EPROBE_DEFER;
 +		I(" DT:gpio_rst value is not valid\n");
 +		pdata->gpio_reset = NULL;
 +	}
@@ -18674,6 +18729,8 @@ index 000000000..e46a57a2c
 +	pdata->gpio_3v3_en = devm_fwnode_gpiod_get_index(ts->dev,
 +			of_fwnode_handle(dt), "himax,3v3", 0, GPIOD_ASIS, "himax_3v3_en");
 +	if (IS_ERR(pdata->gpio_3v3_en)) {
++		if (PTR_ERR(pdata->gpio_3v3_en) == -EPROBE_DEFER)
++			return -EPROBE_DEFER;
 +		I(" DT:gpio_3v3_en value is not valid\n");
 +		pdata->gpio_3v3_en = NULL;
 +	}
@@ -18764,7 +18821,12 @@ index 000000000..e46a57a2c
 +		uint32_t length, uint8_t toRetry)
 +{
 +	int result = 0;
-+	uint8_t spi_format_buf[3];
++	/* static, not a stack array: this becomes spi_transfer.tx_buf, and
++	 * Linux requires SPI transfer buffers to be DMA-safe -- a stack
++	 * buffer isn't, regardless of spi_sync() completing synchronously.
++	 * Safe as a shared static because access is serialized below by
++	 * rw_lock (same as the write path's shared gBuffer). */
++	static uint8_t spi_format_buf[3];
 +
 +	mutex_lock(&(private_ts->rw_lock));
 +	spi_format_buf[0] = 0xF3;
@@ -19020,22 +19082,40 @@ index 000000000..e46a57a2c
 + * gpio_request()/gpio_free() bookkeeping is needed with the gpiod API. */
 +int himax_gpio_power_config(struct himax_i2c_platform_data *pdata)
 +{
-+	int error = 0;
++	int error;
 +
 +#if defined(HX_RST_PIN_FUNC)
-+	if (pdata->gpio_reset)
-+		gpiod_direction_output(pdata->gpio_reset, 0);
++	if (pdata->gpio_reset) {
++		error = gpiod_direction_output(pdata->gpio_reset, 0);
++		if (error) {
++			E("unable to set reset gpio to low: %d\n", error);
++			return error;
++		}
++	}
 +#endif
 +
 +	if (pdata->gpio_3v3_en) {
-+		gpiod_direction_output(pdata->gpio_3v3_en, 1);
++		error = gpiod_direction_output(pdata->gpio_3v3_en, 1);
++		if (error) {
++			E("unable to enable 3v3_en gpio: %d\n", error);
++			return error;
++		}
 +		I("3v3_en set 1 get pin = %d\n",
 +			gpiod_get_value(pdata->gpio_3v3_en));
 +	}
 +
 +	if (pdata->gpio_irq) {
-+		gpiod_direction_input(pdata->gpio_irq);
-+		private_ts->hx_irq = gpiod_to_irq(pdata->gpio_irq);
++		error = gpiod_direction_input(pdata->gpio_irq);
++		if (error) {
++			E("unable to set irq gpio to input: %d\n", error);
++			return error;
++		}
++		error = gpiod_to_irq(pdata->gpio_irq);
++		if (error < 0) {
++			E("unable to convert irq gpio to irq: %d\n", error);
++			return error;
++		}
++		private_ts->hx_irq = error;
 +	} else {
 +		E("irq gpio not provided\n");
 +		return -ENODEV;
@@ -19044,11 +19124,16 @@ index 000000000..e46a57a2c
 +	usleep_range(2000, 2001);
 +
 +#if defined(HX_RST_PIN_FUNC)
-+	if (pdata->gpio_reset)
-+		gpiod_direction_output(pdata->gpio_reset, 1);
++	if (pdata->gpio_reset) {
++		error = gpiod_direction_output(pdata->gpio_reset, 1);
++		if (error) {
++			E("unable to set reset gpio to high: %d\n", error);
++			return error;
++		}
++	}
 +#endif
 +
-+	return error;
++	return 0;
 +}
 +
 +#endif
@@ -19356,23 +19441,33 @@ index 000000000..e46a57a2c
 +
 +#if (defined(HX_BOOT_UPGRADE) || defined(HX_ZERO_FLASH)) && defined(HX_VENDOR_UPGRADE)
 +#define FW_SUFFIX ".bin"
-+char g_fw_name[64] = "Himax_firmware_";
++#define FW_NAME_PREFIX "Himax_firmware_"
++char g_fw_name[64] = FW_NAME_PREFIX;
 +static bool himax_assigned_fw_name(void)
 +{
 +	uint8_t panel_id = 0;
++	int len;
 +
 +	panel_id = himax_get_panel_info();
 +
-+	if(panel_id != NO_PANEL) {
-+		strncat(g_fw_name, himax_panel_info[panel_id].panel_dsc,
-+				strlen(himax_panel_info[panel_id].panel_dsc));
-+		strncat(g_fw_name, FW_SUFFIX,strlen(FW_SUFFIX));
-+		I("fw name is %s.\n",g_fw_name);
-+		return 1;
-+	}else{
++	if (panel_id == NO_PANEL) {
 +		E("fw name dose not assign, pls check panel info.\n");
++		return 0;
 +	}
-+	return 0;
++
++	/* Rebuilt fresh every call (not appended onto prior state):
++	 * repeated calls -- reprobe, deferred probe -- used to keep
++	 * concatenating onto the same static buffer, producing a wrong
++	 * (and eventually out-of-bounds) name after the first call. */
++	len = scnprintf(g_fw_name, sizeof(g_fw_name), "%s%s%s", FW_NAME_PREFIX,
++			himax_panel_info[panel_id].panel_dsc, FW_SUFFIX);
++	if (len >= sizeof(g_fw_name) - 1) {
++		E("fw name for panel '%s' truncated, buffer too small.\n",
++				himax_panel_info[panel_id].panel_dsc);
++		return 0;
++	}
++	I("fw name is %s.\n", g_fw_name);
++	return 1;
 +}
 +#endif
 +
@@ -19433,6 +19528,11 @@ index 000000000..e46a57a2c
 +	spi->bits_per_word = 8;
 +	spi->mode = SPI_MODE_3;
 +	spi_set_chipselect(spi, 0, 0);
++	ret = spi_setup(spi);
++	if (ret) {
++		E("%s: spi_setup failed: %d\n", __func__, ret);
++		goto err_common_init_failed;
++	}
 +
 +	ts->spi = spi;
 +	mutex_init(&ts->rw_lock);
@@ -19461,12 +19561,16 @@ index 000000000..e46a57a2c
 +{
 +	struct himax_ts_data *ts = spi_get_drvdata(spi);
 +
++	/* himax_chip_common_deinit() below kfree()s this same ts (it
++	 * operates on private_ts, set to the same object in probe). Clear
++	 * ts->spi and drop drvdata before that, not after -- touching ts
++	 * post-deinit is a use-after-free. */
++	ts->spi = NULL;
++	spi_set_drvdata(spi, NULL);
++
 +	if (g_hx_chip_inited)
 +		himax_chip_common_deinit();
 +
-+	ts->spi = NULL;
-+	/* spin_unlock_irq(&ts->spi_lock); */
-+	spi_set_drvdata(spi, NULL);
 +	kfree(gBuffer);
 +
 +	I("%s: completed.\n", __func__);
@@ -19493,6 +19597,7 @@ index 000000000..e46a57a2c
 +		.name =		HIMAX_common_NAME,
 +		.owner =	THIS_MODULE,
 +		.of_match_table = himax_match_table,
++		.pm =		&himax_common_pm_ops,
 +	},
 +	.probe =	himax_chip_common_probe,
 +	.remove =	himax_chip_common_remove,
@@ -19527,10 +19632,10 @@ index 000000000..e46a57a2c
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/input/touchscreen/hxchipset/himax_platform.h b/drivers/input/touchscreen/hxchipset/himax_platform.h
 new file mode 100644
-index 000000000..7da1259eb
+index 000000000..8e345c3a4
 --- /dev/null
 +++ b/drivers/input/touchscreen/hxchipset/himax_platform.h
-@@ -0,0 +1,143 @@
+@@ -0,0 +1,147 @@
 +/* SPDX-License-Identifier: GPL-2.0 */
 +/*  Himax Android Driver Sample Code for QCT platform
 + *
@@ -19562,11 +19667,18 @@ index 000000000..7da1259eb
 +#define HIMAX_SPI_FIFO_POLLING
 +#define HIMAX_I2C_RETRY_TIMES 3
 +
-+#if defined(CONFIG_TOUCHSCREEN_HIMAX_DEBUG)
-+#define D(x...) pr_debug("[HXTP] " x)
++/* I/W/E are basic operational logging (including resource, firmware and
++ * identification failures throughout probe/init) and stay live regardless
++ * of the optional debug/factory build; only D/DIF (verbose tracing) are
++ * gated on CONFIG_TOUCHSCREEN_HIMAX_DEBUG. Previously all four were gated
++ * together, which silenced every E()/W() error message -- including
++ * genuine probe failures -- whenever debug support was off. */
 +#define I(x...) pr_info("[HXTP] " x)
 +#define W(x...) pr_warn("[HXTP][WARNING] " x)
 +#define E(x...) pr_err("[HXTP][ERROR] " x)
++
++#if defined(CONFIG_TOUCHSCREEN_HIMAX_DEBUG)
++#define D(x...) pr_debug("[HXTP] " x)
 +#define DIF(x...) \
 +do { \
 +	if (debug_flag) \
@@ -19574,9 +19686,6 @@ index 000000000..7da1259eb
 +	} while (0)
 +#else
 +#define D(x...)
-+#define I(x...)
-+#define W(x...)
-+#define E(x...)
 +#define DIF(x...)
 +#endif
 +

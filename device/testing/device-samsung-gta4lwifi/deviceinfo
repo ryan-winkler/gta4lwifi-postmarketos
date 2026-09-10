@@ -15,7 +15,9 @@ deviceinfo_screen_height="2000"
 deviceinfo_drm="true"
 
 # Bootloader related
-deviceinfo_flash_method="fastboot"
+# Samsung uses Download Mode (Heimdall/Odin), not Fastboot.
+deviceinfo_flash_method="heimdall-bootimg"
+deviceinfo_flash_heimdall_partition_kernel="boot"
 deviceinfo_flash_pagesize="4096"
 deviceinfo_flash_offset_base="0x00000000"
 deviceinfo_flash_offset_kernel="0x00008000"
