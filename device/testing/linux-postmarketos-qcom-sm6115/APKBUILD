@@ -2,7 +2,7 @@ maintainer="Developer <developer@postmarketos.org>"
 _flavor="postmarketos-qcom-sm6115"
 pkgname=linux-$_flavor
 pkgver=7.2.3
-pkgrel=3
+pkgrel=4
 pkgdesc="Near-mainline kernel for SM6115 devices"
 arch="aarch64"
 _carch="arm64"
@@ -29,6 +29,7 @@ source="
 	0002-fix-touch-node-and-port-himax-hx83102-spi-driver.patch
 	0003-reconcile-donor-boot-and-supplies.patch
 	0004-select-himax-firmware-from-device-property.patch
+	0005-enable-geni-and-sd-pinctrl.patch
 "
 builddir="$srcdir/linux"
 
@@ -68,4 +69,5 @@ sha512sums="
 1321b2d6eadce17dc38837d28f8f3acb2690ac387b1ec6103647ae94f5cf76e87e978fc905f843b65749b5cfb9c2b409f16f0106de8c18f7b613fcab83922c45  0002-fix-touch-node-and-port-himax-hx83102-spi-driver.patch
 1b906882f2dc06bceb7c40c32286b15560cdcf777a2ee381c1f8b8443495ca602d48f79951d3bdd51e655e13dc845f99e0bf11d916da0ec9daa8a9e22edd3c2b  0003-reconcile-donor-boot-and-supplies.patch
 edae2199f2a231a8df34f72e7e1a07fe519afe29b2d231da9a0ee2811bf6081e183eeece1e64622843b6bc345c7066e19237fc81a83fb6e1250058115bf80c99  0004-select-himax-firmware-from-device-property.patch
+d3f81d4e3306b103487a2b560727493f6f9364b0946f40db94f3c36c2b08c749e1cf9499ae9ad2e4b270f76d193989c9ed0e9937320ba9c11c26c0fc9e1e48ed  0005-enable-geni-and-sd-pinctrl.patch
 "

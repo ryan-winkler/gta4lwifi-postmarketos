@@ -2,7 +2,7 @@ name: Donor integration
 
 on:
   push:
-    branches: [integration/donor-boot-panel]
+    branches: [main, integration/donor-boot-panel, fix/boot-dependency-contract]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -25,13 +25,19 @@ jobs:
       - name: Install host verification tools
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends device-tree-compiler gcc
+          sudo apt-get install -y --no-install-recommends device-tree-compiler gcc clang lld qemu-user cpio
       - name: Fetch pinned source and regenerate data
         run: |
           python3 tools/fetch_donors.py
           python3 tools/regenerate_donor.py --write
       - name: Run mandatory source and C regressions
         run: bash tools/verify-donor-integration.sh
+      - name: Build and execute static ARM64 diagnostic self-test
+        run: |
+          python3 tools/build_diag_initramfs.py --output evidence/diagnostic
+          qemu-aarch64 evidence/diagnostic/init | tee evidence/diagnostic-selftest.txt
+          grep -F 'not PID1; no mounts performed' evidence/diagnostic-selftest.txt
+          gzip -dc evidence/diagnostic/diagnostic-initramfs.cpio.gz | cpio -it > evidence/diagnostic-archive.txt
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
@@ -44,7 +50,9 @@ jobs:
 
   target-dtb:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 35
+    env:
+      FULL_KERNEL_LINK: "1"
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -58,7 +66,7 @@ jobs:
           curl --fail --location --retry 2 --connect-timeout 20 --max-time 240 \
             'https://codeberg.org/sm61x5-mainline/linux/archive/sm61x5/7.2.3.tar.gz' \
             --output "$RUNNER_TEMP/linux-sm6115-7.2.3.tar.gz"
-      - name: Apply complete patch series and build target DTB
+      - name: Apply package patches, validate target DTB, and link kernel
         shell: bash
         run: |
           set -euo pipefail

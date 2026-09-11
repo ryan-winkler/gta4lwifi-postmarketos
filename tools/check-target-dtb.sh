@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build the target DTB and selected Himax driver objects from a verified archive.
-# This does not link the full kernel, install packages, or flash hardware.
+# FULL_KERNEL_LINK=1 additionally links vmlinux. Never installs or flashes.
 set -euo pipefail
 repo=$(cd "$(dirname "$0")/.." && pwd)
 archive=${1:?Usage: bash tools/check-target-dtb.sh VERIFIED_KERNEL_ARCHIVE}
@@ -26,7 +26,9 @@ kernel="$work/linux"
 port="$repo/device/testing/linux-postmarketos-qcom-sm6115"
 cd "$kernel"
 git init -q
-for p in "$port"/000[1-4]-*.patch; do
+python3 "$repo/tools/package_sources.py" "$port" > "$work/patch-list"
+mapfile -t patches < "$work/patch-list"
+for p in "${patches[@]}"; do
   git apply --check "$p"
   git apply "$p"
 done
@@ -41,4 +43,11 @@ test -s "$repo/evidence/target-driver-object-hashes.txt"
 cp arch/arm64/boot/dts/qcom/sm6115-samsung-gta4lwifi.dtb "$repo/evidence/target-board.dtb"
 cp .config "$repo/evidence/target-resolved.config"
 python3 "$repo/tools/donor_bridge.py" inspect "$repo/evidence/target-board.dtb" > "$repo/evidence/target-dtb-inventory.json"
-printf '%s\n' 'Full patch application, target DTB and selected Himax object compilation passed; this is NOT a full kernel link.'
+if [[ "${FULL_KERNEL_LINK:-0}" == 1 ]]; then
+  make ARCH=arm64 LLVM=1 -j2 vmlinux
+  sha256sum vmlinux > "$repo/evidence/target-vmlinux-sha256.txt"
+  cp include/config/kernel.release "$repo/evidence/target-kernel.release"
+  printf '%s\n' 'Full target vmlinux link passed; no APK/rootfs/BOOT image or hardware validation.'
+else
+  printf '%s\n' 'DTB and selected objects passed; full link was not requested.'
+fi

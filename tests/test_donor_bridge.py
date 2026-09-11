@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
 import donor_bridge as bridge
 import regenerate_donor as regen
+from package_sources import patch_paths
 from fdt_reader import fdt_nodes
 
 PORT = ROOT / 'device/testing/linux-postmarketos-qcom-sm6115'
@@ -70,9 +71,7 @@ def modify_u32(data, offset, value, endian='>'):
 
 def apply_subset(target):
     subprocess.run(['git', 'init', '-q', str(target)], check=True)
-    patches = sorted(PORT.glob('000[1-4]-*.patch'))
-    if len(patches) != 4:
-        raise AssertionError('Expected four active patches')
+    patches = patch_paths(PORT)
     for patch in patches:
         includes = [f'--include={BOARD}', '--include=drivers/input/touchscreen/hxchipset/*']
         subprocess.run(['git', 'apply', '--check', *includes, str(patch)], cwd=target, check=True)
@@ -294,7 +293,7 @@ class IntegrationTests(unittest.TestCase):
                 if name.endswith('.tar.gz'): continue
                 self.assertEqual(hashlib.sha512((port / name).read_bytes()).hexdigest(), digest, name)
                 count += 1
-        self.assertEqual(count, 7)
+        self.assertEqual(count, 3 + len(patch_paths(PORT)))
 
     def test_c_tables_reserialize_exactly(self):
         """Compile the generated C and compare every serialized byte with donor data."""
