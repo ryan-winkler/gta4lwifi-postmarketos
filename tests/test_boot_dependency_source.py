@@ -25,8 +25,8 @@ class BootDependencySourceTests(unittest.TestCase):
 
     def test_connects_both_sd_states(self):
         self.assertIn('pinctrl-names = "default", "sleep";', self.board)
-        self.assertIn('pinctrl-0 = <&sdc2_on_state &gta4lwifi_sd_cd_default>;', self.board)
-        self.assertIn('pinctrl-1 = <&sdc2_off_state &gta4lwifi_sd_cd_sleep>;', self.board)
+        self.assertIn('pinctrl-0 = <&gta4lwifi_sdc2_default &gta4lwifi_sd_cd_default>;', self.board)
+        self.assertIn('pinctrl-1 = <&gta4lwifi_sdc2_sleep &gta4lwifi_sd_cd_sleep>;', self.board)
 
     def test_preserves_boot_selector_clock_and_touch(self):
         for declaration in ('qcom,board-id = <0x1000b 0x0>;',
@@ -35,6 +35,13 @@ class BootDependencySourceTests(unittest.TestCase):
                             'himax,irq-gpio = <&tlmm 80 GPIO_ACTIVE_HIGH>;',
                             'cd-gpios = <&tlmm 88 GPIO_ACTIVE_LOW>;'):
             self.assertIn(declaration, self.board)
+
+    def test_sd_labels_are_defined_locally(self):
+        for label in ('gta4lwifi_sdc2_default', 'gta4lwifi_sdc2_sleep',
+                      'gta4lwifi_sd_cd_default', 'gta4lwifi_sd_cd_sleep'):
+            self.assertIn(label + ': ', self.board)
+        self.assertNotIn('&sdc2_on_state', self.board)
+        self.assertNotIn('&sdc2_off_state', self.board)
 
     def test_package_order(self):
         paths = patch_paths(PORT)

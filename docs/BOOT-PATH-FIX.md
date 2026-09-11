@@ -8,7 +8,7 @@ frozen-logo failure has been reproduced or fixed on hardware.
 
 - Patch `0005` enables the GENI wrapper that creates the existing SPI/UART
   children and the GPI DMA provider already selected by SPI0.
-- The SD host now references native default/sleep pin states. Data-drive and
+- The SD host now references board-local default/sleep pin states. Data-drive and
   GPIO88 card-detect pin settings are translated from the pinned donor's
   `sdc2_*` / `cd_*` definitions. Card-detect polarity is unchanged.
 - APKBUILD includes that patch and increments the kernel package release.
@@ -122,3 +122,13 @@ minimal environment has no normal power-management userspace.
 - [Overlay resolution](https://docs.kernel.org/devicetree/overlay-notes.html).
 - [Android BOOT headers](https://source.android.com/docs/core/architecture/bootloader/boot-image-header).
 - [Ramoops layout](https://docs.kernel.org/admin-guide/ramoops.html).
+
+## Target-build correction
+
+The first target run rejected `sdc2_on_state` / `sdc2_off_state`: those
+labels are absent from the pinned kernel even though similarly named
+compiled nodes exist. The repair now defines unique board-local states
+under `tlmm`, with the donor's clock/command/data pad settings, instead
+of assuming labels from another revision. Source regressions require all
+four referenced board-state labels to be defined. The full-source target
+DTB job remains the authoritative check that the complete tree compiles.
