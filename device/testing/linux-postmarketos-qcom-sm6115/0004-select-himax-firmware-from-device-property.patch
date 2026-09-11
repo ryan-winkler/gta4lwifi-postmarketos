@@ -1,0 +1,75 @@
+Subject: [PATCH] input: himax: accept an explicit firmware-name before allocation
+
+Keep the vendor fallback for other boards; reject malformed explicit names
+rather than silently selecting a different firmware. This selects the blob,
+not its availability, upload success, controller readiness or physical touch.
+
+diff --git a/drivers/input/touchscreen/hxchipset/himax_platform.c b/drivers/input/touchscreen/hxchipset/himax_platform.c
+index f3e7167..c512d57 100644
+--- a/drivers/input/touchscreen/hxchipset/himax_platform.c
++++ b/drivers/input/touchscreen/hxchipset/himax_platform.c
+@@ -16,6 +16,7 @@
+ #include "himax_platform.h"
+ #include "himax_ic_core.h"
+ #include "himax_common.h"
++#include <linux/property.h>
+ 
+ 
+ int i2c_error_count;
+@@ -1000,6 +1001,31 @@ static bool himax_assigned_fw_name(void)
+ }
+ #endif
+ 
++#if (defined(HX_BOOT_UPGRADE) || defined(HX_ZERO_FLASH)) && defined(HX_VENDOR_UPGRADE)
++static int himax_select_fw_name(struct device *dev)
++{
++	const char *name;
++	int ret;
++
++	/* Native postmarketOS need not retain Android panel cmdline strings. */
++	if (device_property_present(dev, "firmware-name")) {
++		ret = device_property_read_string(dev, "firmware-name", &name);
++		if (ret)
++			return dev_err_probe(dev, ret, "invalid firmware-name property\n");
++		if (!name[0])
++			return dev_err_probe(dev, -EINVAL, "empty firmware-name\n");
++		if (strscpy(g_fw_name, name, sizeof(g_fw_name)) < 0)
++			return dev_err_probe(dev, -ENAMETOOLONG, "firmware-name too long\n");
++		return 0;
++	}
++
++	/* Preserve the donor fallback for other boards using this driver. */
++	if (!himax_assigned_fw_name())
++		strscpy(g_fw_name, "Himax_firmware.bin", sizeof(g_fw_name));
++	return 0;
++}
++#endif
++
+ #ifdef CONFIG_TOUCHSCREEN_TID_OPENSHORT_TEST
+ extern ssize_t himax_self_test(struct seq_file *s, void *v);
+ static int tid_open_short_test(struct device *dev, struct seq_file *seq,
+@@ -1034,6 +1060,12 @@ int himax_chip_common_probe(struct spi_device *spi)
+ 	}
+ #endif
+ 
++#if (defined(HX_BOOT_UPGRADE) || defined(HX_ZERO_FLASH)) && defined(HX_VENDOR_UPGRADE)
++	ret = himax_select_fw_name(&spi->dev);
++	if (ret)
++		return ret;
++#endif
++
+ 	gBuffer = kzalloc(sizeof(uint8_t) * HX_MAX_WRITE_SZ, GFP_KERNEL);
+ 	if (gBuffer == NULL) {
+ 		E("%s: allocate gBuffer failed\n", __func__);
+@@ -1048,11 +1080,6 @@ int himax_chip_common_probe(struct spi_device *spi)
+ 		goto err_alloc_data_failed;
+ 	}
+ 
+-#if (defined(HX_BOOT_UPGRADE) || defined(HX_ZERO_FLASH)) && defined(HX_VENDOR_UPGRADE)
+-	if (!himax_assigned_fw_name())
+-		memcpy(g_fw_name, "Himax_firmware.bin", sizeof("Himax_firmware.bin"));
+-#endif
+-
+ 	private_ts = ts;
+ 	spi->bits_per_word = 8;
+ 	spi->mode = SPI_MODE_3;

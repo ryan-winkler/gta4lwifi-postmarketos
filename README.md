@@ -31,9 +31,11 @@ Device and kernel package files for postmarketOS on the Samsung Galaxy Tab A7
 
 ## Status
 
-- Kernel (device tree, defconfig, touch driver) builds and links cleanly
+- The pre-integration baseline was reported to build and link
   end-to-end against `sm61x5-mainline/linux` 7.2.3 (`make ARCH=arm64`, full
-  `vmlinuz`/modules, not just the touch driver in isolation).
+  `vmlinuz`/modules, not just the touch driver in isolation). The new integration
+  patches require a fresh target-kernel/package build; that prior result does not
+  verify the modified candidate.
 - USB PHY nodes (`usb_hsphy`, `usb_qmpphy`) and `CONFIG_REGULATOR_QCOM_RPM`
   (needed by the board's own `qcom,rpm-pm6125-regulators` node) enabled;
   neither was on by default upstream.
@@ -47,3 +49,25 @@ Device and kernel package files for postmarketOS on the Samsung Galaxy Tab A7
   simple-framebuffer node (`CONFIG_DRM_SIMPLEDRM`) in the device tree.
 - Not yet done: a full pmaports-integrated build (pmbootstrap/abuild) of
   this exact source, rootfs, boot image, and physical hardware validation.
+
+
+## Donor-backed integration candidate
+
+The current integration adds two separate kernel patches (`0003` and `0004`):
+boot-selector/clock/USB/SD supply reconciliation and explicit Himax firmware
+selection. It preserves the existing postmarketOS + Plasma Mobile + microSD
+architecture; it does not install Ubuntu Touch or replace KWin with Lomiri.
+
+[Read the integration record](docs/DONOR-INTEGRATION.md) before building. The
+record distinguishes donor declarations, translated bindings, unresolved board
+selection, and actual hardware evidence. Native display remains unfinished.
+
+```sh
+python3 tools/fetch_donors.py
+python3 tools/regenerate_donor.py --write
+bash tools/verify-donor-integration.sh
+```
+
+The exact Lide panel's seven command sequences are available as generated C data
+under `experimental/panel/`, with reproducible source facts under `reference/`.
+They are **not an enabled panel driver**. No OS image is supplied by these checks.

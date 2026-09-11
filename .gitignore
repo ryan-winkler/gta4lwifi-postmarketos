@@ -1,0 +1,7 @@
+.donors/
+evidence/
+__pycache__/
+*.pyc
+# Deterministic outputs: CI artifacts and local bundle, regenerated from pinned source.
+reference/donor-hardware.json
+experimental/panel/hx83102e_lide_commands.h
