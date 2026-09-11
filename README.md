@@ -16,8 +16,9 @@ Device and kernel package files for postmarketOS on the Samsung Galaxy Tab A7
     ports the SPI Himax HX83102 touchscreen driver from Samsung's GPL
     kernel source (drivers/input/touchscreen/hxchipset), adapted for the
     current kernel's GPIO descriptor, SPI, PM, proc_ops and logging APIs,
-    with PM registration, teardown ownership, firmware-name construction,
-    GPIO/IRQ error propagation, and SPI transfer buffer safety corrected.
+    with initial PM, GPIO and transport adaptations. The post-merge review
+    still identifies lifecycle, error-propagation and DMA-safety defects;
+    successful compilation is not touchscreen acceptance.
 
 ## Provenance
 
@@ -71,3 +72,8 @@ bash tools/verify-donor-integration.sh
 The exact Lide panel's seven command sequences are available as generated C data
 under `experimental/panel/`, with reproducible source facts under `reference/`.
 They are **not an enabled panel driver**. No OS image is supplied by these checks.
+
+## Boot dependency follow-up
+
+See [BOOT-PATH-FIX.md](docs/BOOT-PATH-FIX.md) for the GENI/SD repair,
+stock/candidate evidence requirements and static diagnostic initramfs. These are source/diagnostic improvements, not hardware sign-off.

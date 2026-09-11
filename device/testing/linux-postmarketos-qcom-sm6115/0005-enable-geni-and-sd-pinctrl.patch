@@ -1,0 +1,70 @@
+From: gta4lwifi maintainers
+Subject: [PATCH] arm64: dts: enable GENI dependencies and wire SD pin states
+
+The compiled board enabled spi0 and uart4 below a disabled GENI wrapper,
+and spi0 referred to disabled gpi_dma0. Enable both providers. Connect
+existing SD TLMM states and translate the donor's data-drive/card-detect
+settings. No bootloader IDs, DTBO contents, memory reservations, clock
+frequencies or regulator voltage constraints are changed here.
+
+Donor: jojobear691/kernel-samsung-sm6115-halium12
+c058c8a0930d4352eaa96a172f83515077e9ea62, bengal.dtsi sdc2_* / cd_* and
+P85946-qrd-overlay.dts fragment@48. These are source-derived settings,
+not a claim of stock-image or physical validation.
+
+diff --git a/arch/arm64/boot/dts/qcom/sm6115-samsung-gta4lwifi.dts b/arch/arm64/boot/dts/qcom/sm6115-samsung-gta4lwifi.dts
+--- a/arch/arm64/boot/dts/qcom/sm6115-samsung-gta4lwifi.dts
++++ b/arch/arm64/boot/dts/qcom/sm6115-samsung-gta4lwifi.dts
+@@ -309,3 +309,52 @@
+ &sleep_clk {
+ 	clock-frequency = <32764>;
+ };
++
++/* GENI's wrapper populates the SPI/UART children; enabling only a child is
++ * insufficient. spi0 already selects gpi_dma0 in the SoC description.
++ */
++&qupv3_id_0 {
++	status = "okay";
++};
++
++&gpi_dma0 {
++	status = "okay";
++};
++
++/* The SD host needs named states, not just unreferenced TLMM definitions.
++ * Translate the pinned Samsung/Halium sdc2_* and cd_* settings to native
++ * pinctrl bindings; preserve the existing card-detect polarity.
++ */
++&sdhc_2 {
++	pinctrl-names = "default", "sleep";
++	pinctrl-0 = <&sdc2_on_state &gta4lwifi_sd_cd_default>;
++	pinctrl-1 = <&sdc2_off_state &gta4lwifi_sd_cd_sleep>;
++};
++
++&sdc2_on_state {
++	data-pins {
++		drive-strength = <16>;
++	};
++};
++
++&sdc2_off_state {
++	data-pins {
++		drive-strength = <4>;
++	};
++};
++
++&tlmm {
++	gta4lwifi_sd_cd_default: sd-cd-default-state {
++		pins = "gpio88";
++		function = "gpio";
++		drive-strength = <2>;
++		bias-pull-up;
++	};
++
++	gta4lwifi_sd_cd_sleep: sd-cd-sleep-state {
++		pins = "gpio88";
++		function = "gpio";
++		drive-strength = <2>;
++		bias-disable;
++	};
++};
