@@ -1,0 +1,77 @@
+name: Donor integration
+
+on:
+  push:
+    branches: [integration/donor-boot-panel]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: donor-integration-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Fetch pinned donor text and record local source identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .donors evidence
+          python3 - <<'PY'
+          import hashlib, json, pathlib, urllib.request
+          root = pathlib.Path('.')
+          sha = 'c058c8a0930d4352eaa96a172f83515077e9ea62'
+          repo = 'jojobear691/kernel-samsung-sm6115-halium12'
+          inputs = [
+              ('bengal.dtsi', 'arch/arm64/boot/dts/vendor/qcom/bengal.dtsi', 'a397c0d6848c873b95de36f81fe11122bd1c148f'),
+              ('P85946-qrd-overlay.dts', 'arch/arm64/boot/dts/vendor/qcom/P85946-qrd-overlay.dts', '9f8e83cb2745b0c3f050d132c17f66ebaee92bef'),
+          ]
+          evidence = {'scope': 'Source provenance only; no tablet access or flashing.', 'donors': [], 'local_sha512': {}}
+          for name, path, expected in inputs:
+              url = f'https://raw.githubusercontent.com/{repo}/{sha}/{path}'
+              with urllib.request.urlopen(url, timeout=60) as response:
+                  data = response.read(4 * 1024 * 1024 + 1)
+              if len(data) > 4 * 1024 * 1024:
+                  raise SystemExit('Donor exceeds size limit')
+              blob = hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()
+              if blob != expected:
+                  raise SystemExit(f'Donor identity mismatch: {name}')
+              (root / '.donors' / name).write_bytes(data)
+              evidence['donors'].append({'path': name, 'url': url, 'git_blob': blob, 'sha256': hashlib.sha256(data).hexdigest()})
+          for path in sorted((root / 'device').rglob('*')):
+              if path.is_file():
+                  evidence['local_sha512'][str(path)] = hashlib.sha512(path.read_bytes()).hexdigest()
+          (root / 'evidence' / 'source-identities.json').write_text(json.dumps(evidence, indent=2) + '\n')
+          print(json.dumps(evidence, indent=2))
+          PY
+      - name: Run integration tests when present
+        shell: bash
+        run: |
+          set -euo pipefail
+          if test -f tools/verify-donor-integration.sh; then
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends device-tree-compiler
+            bash tools/verify-donor-integration.sh
+          fi
+      - name: Collect source snapshot and evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar --exclude=.git --exclude=evidence/snapshot.tar.gz -czf evidence/snapshot.tar.gz README.md device .github .donors
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: donor-integration-evidence
+          path: evidence/
+          retention-days: 7
