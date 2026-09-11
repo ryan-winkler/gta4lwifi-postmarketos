@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Build ONLY the target DTB from a verified kernel archive in a fresh temporary tree.
-# This does not compile/link the full kernel, install packages, or flash hardware.
+# Build the target DTB and selected Himax driver objects from a verified archive.
+# This does not link the full kernel, install packages, or flash hardware.
 set -euo pipefail
 repo=$(cd "$(dirname "$0")/.." && pwd)
 archive=${1:?Usage: bash tools/check-target-dtb.sh VERIFIED_KERNEL_ARCHIVE}
@@ -33,8 +33,12 @@ done
 cp "$port/config-postmarketos-qcom-sm6115.aarch64" .config
 make ARCH=arm64 LLVM=1 olddefconfig
 make ARCH=arm64 LLVM=1 -j2 qcom/sm6115-samsung-gta4lwifi.dtb
+# Compile the real driver against the target headers, not just mocked host APIs.
+make ARCH=arm64 LLVM=1 -j2 drivers/input/touchscreen/hxchipset/
 mkdir -p "$repo/evidence"
+find drivers/input/touchscreen/hxchipset -name "*.o" -type f -exec sha256sum {} + > "$repo/evidence/target-driver-object-hashes.txt"
+test -s "$repo/evidence/target-driver-object-hashes.txt"
 cp arch/arm64/boot/dts/qcom/sm6115-samsung-gta4lwifi.dtb "$repo/evidence/target-board.dtb"
 cp .config "$repo/evidence/target-resolved.config"
 python3 "$repo/tools/donor_bridge.py" inspect "$repo/evidence/target-board.dtb" > "$repo/evidence/target-dtb-inventory.json"
-printf '%s\n' 'Full source patch application and target DTB build passed; this is NOT a full kernel build.'
+printf '%s\n' 'Full patch application, target DTB and selected Himax object compilation passed; this is NOT a full kernel link.'
