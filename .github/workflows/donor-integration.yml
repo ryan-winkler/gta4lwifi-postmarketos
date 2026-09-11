@@ -1,0 +1,72 @@
+name: Donor integration
+
+on:
+  push:
+    branches: [integration/donor-boot-panel]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: donor-integration-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Install host verification tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends device-tree-compiler gcc
+      - name: Fetch pinned source and regenerate data
+        run: |
+          python3 tools/fetch_donors.py
+          python3 tools/regenerate_donor.py --write
+      - name: Run mandatory source and C regressions
+        run: bash tools/verify-donor-integration.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: donor-integration-evidence
+          path: |
+            evidence/
+            reference/donor-hardware.json
+            experimental/panel/hx83102e_lide_commands.h
+          retention-days: 14
+
+  target-dtb:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Install target DTB build tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends clang llvm lld make gcc bison flex libssl-dev libelf-dev bc curl
+      - name: Fetch exact kernel archive
+        run: |
+          curl --fail --location --retry 2 --connect-timeout 20 --max-time 240 \
+            'https://codeberg.org/sm61x5-mainline/linux/archive/sm61x5/7.2.3.tar.gz' \
+            --output "$RUNNER_TEMP/linux-sm6115-7.2.3.tar.gz"
+      - name: Apply complete patch series and build target DTB
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          bash tools/check-target-dtb.sh "$RUNNER_TEMP/linux-sm6115-7.2.3.tar.gz" 2>&1 | tee evidence/target-dtb-build.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: target-dtb-build-evidence
+          path: evidence/
+          retention-days: 14

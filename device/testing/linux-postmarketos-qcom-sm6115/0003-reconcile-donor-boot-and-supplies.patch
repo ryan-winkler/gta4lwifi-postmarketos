@@ -1,0 +1,95 @@
+Subject: [PATCH] arm64: dts: qcom: reconcile gta4lwifi boot and supply data with donor
+
+Preserve the native board/driver architecture. Use identifiers, fixed-clock
+values and regulator identities from the pinned Ubuntu Touch Samsung donor
+c058c8a0930d4352eaa96a172f83515077e9ea62. Translate PHY/MMC binding names;
+do not import downstream phandles, vendor MMIO tuning or the Android stack.
+
+This is a source-backed bring-up candidate, NOT a hardware-validated fix.
+The installed DTBO/selected live FDT still require comparison. The 32764 Hz
+sleep value is the donor declaration, deliberately not silently rounded.
+See docs/DONOR-INTEGRATION.md for provenance and acceptance boundaries.
+
+diff --git a/arch/arm64/boot/dts/qcom/sm6115-samsung-gta4lwifi.dts b/arch/arm64/boot/dts/qcom/sm6115-samsung-gta4lwifi.dts
+index a0e0744..3aeabc3 100644
+--- a/arch/arm64/boot/dts/qcom/sm6115-samsung-gta4lwifi.dts
++++ b/arch/arm64/boot/dts/qcom/sm6115-samsung-gta4lwifi.dts
+@@ -17,9 +17,12 @@
+ 	compatible = "samsung,gta4lwifi", "qcom,sm6115";
+ 	chassis-type = "tablet";
+ 
+-	/* Qualcomm board identification */
+-	qcom,msm-id = <445 0x10000>, <420 0x10000>;
+-	qcom,board-id = <0x85943 0x01>;
++	/* Donor base SoC IDs and board-overlay selector; not the Android
++	 * androidboot.board_id string. Verify against the selected live FDT
++	 * and the installed DTBO before approving a hardware candidate.
++	 */
++	qcom,msm-id = <417 0x10000>, <444 0x10000>;
++	qcom,board-id = <0x1000b 0x0>;
+ 
+ 	aliases {
+ 		mmc0 = &sdhc_1;
+@@ -91,6 +94,7 @@
+ 
+ 	himax_ts@0 {
+ 		compatible = "himax,hxcommon";
++		firmware-name = "Himax_firmware_lide_hsd.bin";
+ 		reg = <0>;
+ 		spi-max-frequency = <10000000>;
+ 		spi-cpha;
+@@ -116,6 +120,8 @@
+ /* SDHCI 2: MicroSD Card slot (External Storage) */
+ &sdhc_2 {
+ 	status = "okay";
++	vmmc-supply = <&pm6125_l22>;
++	vqmmc-supply = <&pm6125_l5>;
+ 	cd-gpios = <&tlmm 88 GPIO_ACTIVE_LOW>;
+ 	bus-width = <4>;
+ 	no-sdio;
+@@ -127,21 +133,20 @@
+ 	status = "okay";
+ };
+ 
+-/* USB controller in peripheral/gadget mode for USB networking & debugging.
+- * usb_hsphy/usb_qmpphy default to status="disabled" in sm6115.dtsi and
+- * were never enabled here -- USB wouldn't actually come up despite &usb
+- * itself being "okay". Neither PHY node takes board-specific supply
+- * properties in the mainline binding (checked against sm6115.dtsi: only
+- * SoC-internal clocks/resets), so enabling them needs no board-specific
+- * tuning data -- mainline's phy-qcom-qusb2.c/phy-qcom-qmp-usb.c carry the
+- * SM6115 init sequences internally, selected by the compatible string,
+- * unlike Samsung's downstream driver which read them from DT.
++/* The regulator identity is preserved from the donor; binding names are
++ * translated to the native SM6115 PHY drivers. Do not copy vendor MMIO
++ * tuning arrays or phandle numbers into the mainline description.
+  */
+ &usb_hsphy {
++	vdd-supply = <&pm6125_l4>;
++	vdda-pll-supply = <&pm6125_l12>;
++	vdda-phy-dpdm-supply = <&pm6125_l15>;
+ 	status = "okay";
+ };
+ 
+ &usb_qmpphy {
++	vdda-phy-supply = <&pm6125_l4>;
++	vdda-pll-supply = <&pm6125_l12>;
+ 	status = "okay";
+ };
+ 
+@@ -292,3 +297,15 @@
+ 		bias-pull-up;
+ 	};
+ };
++
++/* Source-backed bring-up rates from the pinned Bengal donor. Its sleep
++ * clock is 32764, NOT the 32768 used by the earlier clock-only experiment.
++ * This is a candidate baseline, not a measurement of the oscillator.
++ */
++&xo_board {
++	clock-frequency = <19200000>;
++};
++
++&sleep_clk {
++	clock-frequency = <32764>;
++};
